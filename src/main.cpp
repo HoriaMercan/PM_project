@@ -7,6 +7,8 @@
 
 // #define TFT_WIDTH 128
 // #define TFT_HEIGHT 160
+#include "minesweeper.h"
+#include "bt_commands.h"
 
 
 TFT_eSPI tft = TFT_eSPI();  // Invoke library, pins defined in User_Setup.h
@@ -46,6 +48,8 @@ message_t messageQueue[MAX_MESSAGES];
 int messageQueueHead = 0;
 int messageQueueTail = 0;
 portMUX_TYPE messageQueueMux = portMUX_INITIALIZER_UNLOCKED;
+
+Minesweeper game;
 
 // Function to add message to queue
 bool addMessageToQueue(uint8_t* data, size_t length) {
@@ -89,6 +93,7 @@ bool getMessageFromQueue(message_t* message) {
 void btCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
   if (event == ESP_SPP_SRV_OPEN_EVT) {
     Serial.println("Client Connected");
+    
     deviceConnected = true;
     hasConnectedClient = true;
     
@@ -101,6 +106,7 @@ void btCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
             connectedAddress[3], connectedAddress[4], connectedAddress[5]);
     Serial.print("Client address: ");
     Serial.println(addrStr);
+    SerialBT.print("Hi from the server!");
   }
   
   else if (event == ESP_SPP_CLOSE_EVT) {
@@ -118,6 +124,30 @@ void btCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
   }
 }
 
+
+void draw_map() {
+  const int pixel_size = 14;
+  for (int i = 0; i < WIDTH; i++) {
+    for (int j = 0; j < HEIGHT; j++) {
+      if (j * 8 + i == game.get_player_position()) {
+        // Write 0 at the first position
+        tft.fillRect(i * pixel_size, j * pixel_size, pixel_size, pixel_size, TFT_BLUE);
+        tft.setTextColor(TFT_WHITE);
+        tft.setTextSize(1);
+        tft.setCursor(i * pixel_size + 2, j * pixel_size + 2);
+        tft.print("0");
+      }
+      else if (game.is_bomb(j * 8 + i)) {
+        tft.drawRect(i * pixel_size, j * pixel_size, pixel_size, pixel_size, TFT_BLACK);
+        tft.fillRect(i * pixel_size + 1, j * pixel_size + 1, pixel_size - 2, pixel_size - 2, TFT_RED);
+      } else {
+        tft.drawRect(i * pixel_size, j * pixel_size, pixel_size, pixel_size, TFT_BLACK);
+        tft.fillRect(i * pixel_size + 1, j * pixel_size + 1, pixel_size - 2, pixel_size - 2, TFT_GREEN);
+      }
+    }
+  }
+}
+
 void setup() {
   Serial.begin(BAUD_RATE);
   Serial.println("Starting Bluetooth Classic Relay Server...");
@@ -129,12 +159,14 @@ void setup() {
   Serial.println("Bluetooth Classic device started, ready to pair!");
 
   tft.init();
-  tft.setRotation(1);
-  tft.fillScreen(TFT_BLACK);
-  tft.drawString("Bluetooth Relay", 30, 30, 2);
+  tft.setRotation(0);
+  tft.fillScreen(TFT_CYAN);
+  tft.drawString("Bluetooth Relay", 30, 30, 1);
   Serial.println("TFT initialized with red background");
-
+  Serial.printf("TFT width: %d, height: %d\n", tft.width(), tft.height());
   targetTime = millis() + 1000;
+
+  draw_map();
 }
 
 void loop() {
@@ -151,6 +183,19 @@ void loop() {
     if (deviceConnected) {
       SerialBT.write(message.data, message.length);
     }
+    if (message.data[0] == 'L') {
+      game.move_player(CMD_LEFT);
+    } else if (message.data[0] == 'R') {
+      game.move_player(CMD_RIGHT);
+    } else if (message.data[0] == 'U') {
+      game.move_player(CMD_UP);
+    } else if (message.data[0] == 'D') {
+      game.move_player(CMD_DOWN);
+    } else if (message.data[0] == 'S') {
+      game.move_player(CMD_SHOOT);
+    }
+
+    draw_map();
     
     // For debugging, print message content to Serial
     Serial.print("Message content: ");
@@ -158,6 +203,7 @@ void loop() {
       Serial.print((char)message.data[i]);
     }
     Serial.println();
+    
   }
 
   // Handle reconnection
