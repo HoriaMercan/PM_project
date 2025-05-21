@@ -78,6 +78,7 @@ bool Minesweeper::shoot()
     if (is_bomb(player_position))
     {
         set_revealed(player_position);
+        is_lost = true;
         return true; // Game over
     }
     else

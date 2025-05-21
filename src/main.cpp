@@ -19,6 +19,8 @@ byte blue = 0;
 byte state = 0;
 unsigned int colour = red << 11;
 
+uint8_t shouldRedrawMap = 0;
+
 // Check if Bluetooth Serial is properly supported
 #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
 #error Bluetooth is not enabled! Please run `make menuconfig` and enable Bluetooth Classic.
@@ -136,13 +138,24 @@ void btCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
 // ISR for pressing GPIO0 button
 void IRAM_ATTR buttonISR_GPIO0()
 {
+  tft.fillScreen(TFT_CYAN);
+
   game = Minesweeper(); // Reset the game
-  draw_map();
+  // draw_map();
+  shouldRedrawMap = 1;
+}
+
+bool displayMenu = false;
+
+int32_t lastButtonPress = 0;
+void IRAM_ATTR buttonISR_GPIO35()
+{
+  displayMenu = !displayMenu;
 }
 
 // https://circuitdigest.com/microcontroller-projects/esp32-timers-and-timer-interrupts
 // Setup one second timer
-hw_timer_t *timer = NULL;
+hw_timer_t *my_timer = NULL;
 void IRAM_ATTR timerISR()
 {
   Serial.println("Timer interrupt triggered");
@@ -161,8 +174,23 @@ void draw_map()
         tft.fillRect(i * pixel_size, j * pixel_size, pixel_size, pixel_size, TFT_ORANGE);
         tft.setTextColor(TFT_WHITE);
         tft.setTextSize(1);
-        tft.setCursor(i * pixel_size + 2, j * pixel_size + 2);
-        tft.print("0");
+        if (game.is_revealed(j * 8 + i))
+        {
+          if (game.is_bomb(j * 8 + i))
+          {
+            tft.setCursor(i * pixel_size + 2, j * pixel_size + 2);
+            tft.print("L");
+          }
+          else
+          {
+            // tft.setTextColor(TFT_BLACK);
+            char text[2];
+            int num_bombs = game.how_many_neighbouring_bombs(j * 8 + i);
+            sprintf(text, "%d", num_bombs);
+            tft.setCursor(i * pixel_size + 2, j * pixel_size + 2);
+            tft.print(text);
+          }
+        }
       }
       else if (!game.is_revealed(j * 8 + i))
       {
@@ -193,6 +221,18 @@ void draw_map()
   }
 }
 
+void draw_menu()
+{
+  tft.fillScreen(TFT_CYAN);
+  tft.setTextColor(TFT_BLACK);
+  tft.setTextSize(2);
+  tft.setCursor(10, 10);
+  tft.print("Menu");
+  tft.setTextSize(1);
+  tft.setCursor(10, 50);
+  tft.print("Press GPIO35 to resume");
+}
+
 void setup()
 {
   Serial.begin(BAUD_RATE);
@@ -219,6 +259,9 @@ void setup()
   pinMode(GPIO_NUM_0, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(GPIO_NUM_0), buttonISR_GPIO0, FALLING);
 
+  // pinMode(GPIO_NUM_35, INPUT_PULLUP);
+  // attachInterrupt(digitalPinToInterrupt(GPIO_NUM_35), buttonISR_GPIO35, FALLING);
+
   // Initialize timer for one second
   // timer = timerBegin(0, 80, true); // Timer 0, prescaler 80 (1 tick = 1 us)
   // timerAttachInterrupt(timer, &timerISR, true); // Attach the interrupt
@@ -229,50 +272,75 @@ void setup()
 void loop()
 {
   // Process messages from the queue
-  message_t message;
-  if (getMessageFromQueue(&message))
+
+  if (false)
   {
-    Serial.printf("Processing message (%d bytes)\n", message.length);
+    Serial.println("Displaying menu");
+    draw_menu();
+  }
+  else
+  {
+    if (shouldRedrawMap)
+    {
+      draw_map();
+      shouldRedrawMap = 0;
+    }
+    if (game.is_game_over())
+    {
+      tft.fillScreen(TFT_RED);
+      tft.setTextColor(TFT_WHITE);
+      tft.setTextSize(2);
+      tft.setCursor(10, 10);
+      tft.print("Game Over");
+      delay(200);
+      // game = Minesweeper();
+      // shouldRedrawMap = 1;
+    }
+    message_t message;
+    if (getMessageFromQueue(&message))
+    {
+      Serial.printf("Processing message (%d bytes)\n", message.length);
 
-    // In standard Bluetooth we typically have point-to-point connections
-    // You can implement multi-device relaying by storing messages
-    // and forwarding when other devices connect
+      // In standard Bluetooth we typically have point-to-point connections
+      // You can implement multi-device relaying by storing messages
+      // and forwarding when other devices connect
 
-    // If you want to echo back to the same device:
-    if (deviceConnected)
-    {
-      SerialBT.write(message.data, message.length);
-    }
-    if (message.data[0] == 'L')
-    {
-      game.move_player(CMD_LEFT);
-    }
-    else if (message.data[0] == 'R')
-    {
-      game.move_player(CMD_RIGHT);
-    }
-    else if (message.data[0] == 'U')
-    {
-      game.move_player(CMD_UP);
-    }
-    else if (message.data[0] == 'D')
-    {
-      game.move_player(CMD_DOWN);
-    }
-    else if (message.data[0] == 'S')
-    {
-      game.move_player(CMD_SHOOT);
-    }
+      // If you want to echo back to the same device:
+      if (deviceConnected)
+      {
+        SerialBT.write(message.data, message.length);
+      }
+      if (message.data[0] == 'L')
+      {
+        game.move_player(CMD_LEFT);
+      }
+      else if (message.data[0] == 'R')
+      {
+        game.move_player(CMD_RIGHT);
+      }
+      else if (message.data[0] == 'U')
+      {
+        game.move_player(CMD_UP);
+      }
+      else if (message.data[0] == 'D')
+      {
+        game.move_player(CMD_DOWN);
+      }
+      else if (message.data[0] == 'S')
+      {
+        game.move_player(CMD_SHOOT);
+      }
 
-    draw_map();
+      draw_map();
 
-    // For debugging, print message content to Serial
-    Serial.print("Message content: ");
-    for (int i = 0; i < message.length; i++)
-    {
-      Serial.print((char)message.data[i]);
+      // For debugging, print message content to Serial
+      Serial.print("Message content: ");
+      for (int i = 0; i < message.length; i++)
+      {
+        Serial.print((char)message.data[i]);
+      }
+      Serial.println();
     }
-    Serial.println();
   }
 
   // Handle reconnection

@@ -17,6 +17,7 @@ private:
     uint8_t flag_is_revealed[(WIDTH * HEIGHT + 7) / 8];
     uint8_t player_position = 0;
 
+    bool is_lost = false;
     void _reveal_until_neighbouring_bomb(uint8_t position);
 
 public:
@@ -46,6 +47,11 @@ public:
 
     bool shoot();
     uint8_t how_many_neighbouring_bombs(uint8_t position);
+
+    bool is_game_over()
+    {
+        return is_lost;
+    }
 };
 
 #endif // _MINESWEEPER_H_
