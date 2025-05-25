@@ -5,6 +5,8 @@
 
 #include "bt_commands.h"
 
+#include <TFT_eSPI.h>
+
 #define WIDTH 8
 #define HEIGHT 16
 
@@ -12,15 +14,16 @@
 
 class Minesweeper
 {
-private:
+public:
     uint8_t bombs[NUM_BOMBS];
     uint8_t flag_is_revealed[(WIDTH * HEIGHT + 7) / 8];
-    uint8_t player_position = 0;
+    uint8_t player_position;
+    uint8_t marked_as_bomb[(WIDTH * HEIGHT + 7) / 8]; // For marking positions as bombs
 
-    bool is_lost = false;
+    bool is_lost;
     void _reveal_until_neighbouring_bomb(uint8_t position);
 
-public:
+// public:
     Minesweeper();
     static inline uint8_t get_x_pos(uint8_t position);
     static inline uint8_t get_y_pos(uint8_t position);
@@ -45,6 +48,11 @@ public:
     bool is_revealed(uint8_t position);
     void set_revealed(uint8_t position);
 
+    bool is_marked_as_bomb(uint8_t position);
+    void set_marked_as_bomb(uint8_t position);
+
+    void builtin_button_pressed();
+
     bool shoot();
     uint8_t how_many_neighbouring_bombs(uint8_t position);
 
@@ -52,6 +60,11 @@ public:
     {
         return is_lost;
     }
+
+    void draw_map(TFT_eSPI &tft);
+
+    bool won();
+
 };
 
 #endif // _MINESWEEPER_H_

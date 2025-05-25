@@ -5,8 +5,11 @@ Minesweeper::Minesweeper()
     for (int i = 0; i < (WIDTH * HEIGHT + 7) / 8; i++)
     {
         flag_is_revealed[i] = 0;
+        marked_as_bomb[i] = 0; // Initialize marked positions as not bombs
     }
 
+    is_lost = false;
+    player_position = 0; // Start at the top-left corner
     esp_fill_random(bombs, NUM_BOMBS);
     for (int i = 0; i < NUM_BOMBS; i++)
     {
@@ -71,6 +74,24 @@ void Minesweeper::set_revealed(uint8_t position)
     int32_t x = get_x_pos(position);
     int32_t y = get_y_pos(position);
     flag_is_revealed[x] |= (1 << y);
+    marked_as_bomb[x] &= ~(1 << y); // Unmark as bomb when revealed
+}
+
+bool Minesweeper::is_marked_as_bomb(uint8_t position)
+{
+    int32_t x = get_x_pos(position);
+    int32_t y = get_y_pos(position);
+    return (marked_as_bomb[x] & (1 << y)) != 0;
+}
+void Minesweeper::set_marked_as_bomb(uint8_t position)
+{
+    if (is_revealed(position))
+    {
+        return; // Cannot mark a revealed position as a bomb
+    }
+    int32_t x = get_x_pos(position);
+    int32_t y = get_y_pos(position);
+    marked_as_bomb[x] ^= (1 << y); // change state
 }
 
 bool Minesweeper::shoot()
@@ -152,4 +173,95 @@ void Minesweeper::_reveal_until_neighbouring_bomb(uint8_t position)
             }
         }
     }
+}
+
+void Minesweeper::draw_map(TFT_eSPI &tft)
+{
+    const int pixel_size = 13;
+    for (int i = 0; i < WIDTH; i++)
+    {
+        for (int j = 0; j < HEIGHT; j++)
+        {
+            if (j * 8 + i == this->get_player_position())
+            {
+                // Write 0 at the first position
+                tft.fillRect(i * pixel_size, j * pixel_size, pixel_size, pixel_size, TFT_ORANGE);
+                tft.setTextColor(TFT_WHITE);
+                tft.setTextSize(1);
+                if (this->is_revealed(j * 8 + i))
+                {
+                    if (this->is_bomb(j * 8 + i))
+                    {
+                        tft.setCursor(i * pixel_size + 2, j * pixel_size + 2);
+                        tft.print("L");
+                    }
+                    else
+                    {
+                        // tft.setTextColor(TFT_BLACK);
+                        char text[2];
+                        int num_bombs = this->how_many_neighbouring_bombs(j * 8 + i);
+                        sprintf(text, "%d", num_bombs);
+                        tft.setCursor   (i * pixel_size + 2, j * pixel_size + 2);
+                        tft.print(text);
+                    }
+                }
+            }
+            else if (!this->is_revealed(j * 8 + i) && !this->is_marked_as_bomb(j * 8 + i))
+            {
+                tft.drawRect(i * pixel_size, j * pixel_size, pixel_size, pixel_size, TFT_BLACK);
+                tft.fillRect(i * pixel_size + 1, j * pixel_size + 1, pixel_size - 2, pixel_size - 2, TFT_LIGHTGREY);
+            }
+            else if (this->is_revealed(j * 8 + i) && this->is_bomb(j * 8 + i))
+            {
+                tft.drawRect(i * pixel_size, j * pixel_size, pixel_size, pixel_size, TFT_BLACK);
+                tft.fillRect(i * pixel_size + 1, j * pixel_size + 1, pixel_size - 2, pixel_size - 2, TFT_RED);
+            }
+            else if (!this->is_revealed(j * 8 + i) && this->is_marked_as_bomb(j * 8 + i))
+            {
+                tft.drawRect(i * pixel_size, j * pixel_size, pixel_size, pixel_size, TFT_BLACK);
+                tft.fillRect(i * pixel_size + 1, j * pixel_size + 1, pixel_size - 2, pixel_size - 2, TFT_YELLOW);
+                tft.setCursor(i * pixel_size + 2, j * pixel_size + 2);
+                tft.setTextColor(TFT_BLACK);
+                tft.print("B");
+            }
+            else
+            {
+                // revealed but not a bomb
+                tft.drawRect(i * pixel_size, j * pixel_size, pixel_size, pixel_size, TFT_BLACK);
+                tft.fillRect(i * pixel_size + 1, j * pixel_size + 1, pixel_size - 2, pixel_size - 2, TFT_GREEN);
+                tft.setCursor(i * pixel_size + 2, j * pixel_size + 2);
+
+                char text[2];
+                int num_bombs = this->how_many_neighbouring_bombs(j * 8 + i);
+                if (num_bombs > 0)
+                {
+                    sprintf(text, "%d", num_bombs);
+                    tft.setTextColor(TFT_BLACK);
+                    tft.print(text);
+                }
+            }
+        }
+    }
+}
+
+void Minesweeper::builtin_button_pressed()
+{
+    set_marked_as_bomb(player_position);
+}
+
+bool Minesweeper::won()
+{
+    // Check if all non-bomb positions are revealed
+    for (int i = 0; i < WIDTH * HEIGHT; i++)
+    {
+        if (!is_bomb(i) && !is_revealed(i)) {
+            return false;  // Not all non-bomb positions are revealed
+        }
+
+        if (is_bomb(i) && !is_marked_as_bomb(i))
+        {
+            return false; // Not all bomb positions are marked as bombs
+        }
+    }
+    return true; // All non-bomb positions are revealed and all bombs are marked
 }

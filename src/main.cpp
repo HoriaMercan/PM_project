@@ -138,11 +138,14 @@ void btCallback(esp_spp_cb_event_t event, esp_spp_cb_param_t *param)
 // ISR for pressing GPIO0 button
 void IRAM_ATTR buttonISR_GPIO0()
 {
-  tft.fillScreen(TFT_CYAN);
+  shouldRedrawMap = 1; // total reset the game
+}
 
-  game = Minesweeper(); // Reset the game
-  // draw_map();
-  shouldRedrawMap = 1;
+bool mark_as_bomb = false;
+
+void IRAM_ATTR buttonISR_GPIO2()
+{
+  mark_as_bomb = true;
 }
 
 bool displayMenu = false;
@@ -156,69 +159,15 @@ void IRAM_ATTR buttonISR_GPIO35()
 // https://circuitdigest.com/microcontroller-projects/esp32-timers-and-timer-interrupts
 // Setup one second timer
 hw_timer_t *my_timer = NULL;
+uint32_t timerCounter = 0;
 void IRAM_ATTR timerISR()
 {
-  Serial.println("Timer interrupt triggered");
+  timerCounter++;
 }
 
 void draw_map()
 {
-  const int pixel_size = 13;
-  for (int i = 0; i < WIDTH; i++)
-  {
-    for (int j = 0; j < HEIGHT; j++)
-    {
-      if (j * 8 + i == game.get_player_position())
-      {
-        // Write 0 at the first position
-        tft.fillRect(i * pixel_size, j * pixel_size, pixel_size, pixel_size, TFT_ORANGE);
-        tft.setTextColor(TFT_WHITE);
-        tft.setTextSize(1);
-        if (game.is_revealed(j * 8 + i))
-        {
-          if (game.is_bomb(j * 8 + i))
-          {
-            tft.setCursor(i * pixel_size + 2, j * pixel_size + 2);
-            tft.print("L");
-          }
-          else
-          {
-            // tft.setTextColor(TFT_BLACK);
-            char text[2];
-            int num_bombs = game.how_many_neighbouring_bombs(j * 8 + i);
-            sprintf(text, "%d", num_bombs);
-            tft.setCursor(i * pixel_size + 2, j * pixel_size + 2);
-            tft.print(text);
-          }
-        }
-      }
-      else if (!game.is_revealed(j * 8 + i))
-      {
-        tft.drawRect(i * pixel_size, j * pixel_size, pixel_size, pixel_size, TFT_BLACK);
-        tft.fillRect(i * pixel_size + 1, j * pixel_size + 1, pixel_size - 2, pixel_size - 2, TFT_LIGHTGREY);
-      }
-      else if (game.is_bomb(j * 8 + i))
-      {
-        tft.drawRect(i * pixel_size, j * pixel_size, pixel_size, pixel_size, TFT_BLACK);
-        tft.fillRect(i * pixel_size + 1, j * pixel_size + 1, pixel_size - 2, pixel_size - 2, TFT_RED);
-      }
-      else
-      {
-        tft.drawRect(i * pixel_size, j * pixel_size, pixel_size, pixel_size, TFT_BLACK);
-        tft.fillRect(i * pixel_size + 1, j * pixel_size + 1, pixel_size - 2, pixel_size - 2, TFT_GREEN);
-        tft.setCursor(i * pixel_size + 2, j * pixel_size + 2);
-
-        char text[2];
-        int num_bombs = game.how_many_neighbouring_bombs(j * 8 + i);
-        if (num_bombs > 0)
-        {
-          sprintf(text, "%d", num_bombs);
-          tft.setTextColor(TFT_BLACK);
-          tft.print(text);
-        }
-      }
-    }
-  }
+  game.draw_map(tft);
 }
 
 void draw_menu()
@@ -232,6 +181,31 @@ void draw_menu()
   tft.setCursor(10, 50);
   tft.print("Press GPIO35 to resume");
 }
+
+#include "pitches.h" // Include the pitches header for note definitions
+
+const int BUZZZER_PIN = GPIO_NUM_25;
+
+// notes in the melody:
+int melody[] = {
+    NOTE_E5, NOTE_E5, NOTE_E5,
+    NOTE_E5, NOTE_E5, NOTE_E5,
+    NOTE_E5, NOTE_G5, NOTE_C5, NOTE_D5,
+    NOTE_E5,
+    NOTE_F5, NOTE_F5, NOTE_F5, NOTE_F5,
+    NOTE_F5, NOTE_E5, NOTE_E5, NOTE_E5, NOTE_E5,
+    NOTE_E5, NOTE_D5, NOTE_D5, NOTE_E5,
+    NOTE_D5, NOTE_G5};
+
+int noteDurations[] = {
+    8, 8, 4,
+    8, 8, 4,
+    8, 8, 8, 8,
+    2,
+    8, 8, 8, 8,
+    8, 8, 8, 16, 16,
+    8, 8, 8, 8,
+    4, 4};
 
 void setup()
 {
@@ -259,19 +233,89 @@ void setup()
   pinMode(GPIO_NUM_0, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(GPIO_NUM_0), buttonISR_GPIO0, FALLING);
 
+  pinMode(GPIO_NUM_2, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(GPIO_NUM_2), buttonISR_GPIO2, FALLING);
+
   // pinMode(GPIO_NUM_35, INPUT_PULLUP);
   // attachInterrupt(digitalPinToInterrupt(GPIO_NUM_35), buttonISR_GPIO35, FALLING);
 
   // Initialize timer for one second
-  // timer = timerBegin(0, 80, true); // Timer 0, prescaler 80 (1 tick = 1 us)
-  // timerAttachInterrupt(timer, &timerISR, true); // Attach the interrupt
-  // timerAlarmWrite(timer, 1000000, true); // Set alarm for 1 second
-  // timerAlarmEnable(timer); // Enable the alarm
+  my_timer = timerBegin(0, 80, true);              // Timer 0, prescaler 80 (1 tick = 1 us)
+  timerAttachInterrupt(my_timer, &timerISR, true); // Attach the interrupt
+  timerAlarmWrite(my_timer, 1000000 / 1000, true); // Set alarm for 1/1000 second
+  timerAlarmEnable(my_timer);                      // Enable the alarm
+
+  int size = sizeof(noteDurations) / sizeof(int);
+  pinMode(BUZZZER_PIN, OUTPUT); // Set the buzzer pin as output
+
+  for (int thisNote = 0; thisNote < size; thisNote++)
+  {
+
+    // to calculate the note duration, take one second divided by the note type.
+    // e.g. quarter note = 1000 / 4, eighth note = 1000/8, etc.
+    int noteDuration = 1000 / noteDurations[thisNote];
+    tone(BUZZZER_PIN, melody[thisNote], noteDuration);
+
+    // to distinguish the notes, set a minimum time between them.
+    // the note's duration + 30% seems to work well:
+    int pauseBetweenNotes = noteDuration * 1.30;
+    delay(pauseBetweenNotes);
+    // stop the tone playing:
+    noTone(BUZZZER_PIN);
+  }
 }
+
+bool play_song = false;
+const int noteDuration_size = sizeof(noteDurations) / sizeof(int);
+int currentNote = 0; // Track the current note being played
+uint32_t lastTimerCheck = 0;
+bool action_playing;
 
 void loop()
 {
   // Process messages from the queue
+  if (mark_as_bomb)
+  {
+    mark_as_bomb = false;
+    Serial.printf("Bomb marked in position %d %d\n",
+                  (game.get_player_position() & 0x0F), // X position
+                  (game.get_player_position() >> 4));  // Y position
+    game.builtin_button_pressed();
+    draw_map();
+    Serial.printf("flag value %d\n",
+                  game.is_marked_as_bomb(game.get_player_position()));
+
+    play_song = true; // Play song when marking a bomb
+    lastTimerCheck = timerCounter;
+    action_playing = false;
+  }
+
+  if (play_song)
+  {
+    if (currentNote < noteDuration_size)
+    {
+      int noteDuration = 1000 / noteDurations[currentNote];
+      if (!action_playing)
+      {
+        action_playing = true; // Set the action as playing
+        tone(BUZZZER_PIN, melody[currentNote], noteDuration);
+      }
+      if (timerCounter - lastTimerCheck >= noteDuration + noteDuration / 4) // Check if enough time has passed
+      {
+        lastTimerCheck = timerCounter; // Update the last check time
+        noTone(BUZZZER_PIN);
+        currentNote++;
+        Serial.printf("Current note: %d, Duration: %d ms\n",
+                      currentNote, noteDuration);
+        action_playing = false;
+      }
+    }
+    else
+    {
+      play_song = false; // Stop playing when all notes are done
+      currentNote = 0;   // Reset for next time
+    }
+  }
 
   if (false)
   {
@@ -282,10 +326,13 @@ void loop()
   {
     if (shouldRedrawMap)
     {
+      tft.fillScreen(TFT_CYAN);
+
+      game = Minesweeper(); // Reset the game
       draw_map();
       shouldRedrawMap = 0;
     }
-    if (game.is_game_over())
+    else if (game.is_game_over())
     {
       tft.fillScreen(TFT_RED);
       tft.setTextColor(TFT_WHITE);
@@ -295,6 +342,15 @@ void loop()
       delay(200);
       // game = Minesweeper();
       // shouldRedrawMap = 1;
+    }
+    else if (game.won())
+    {
+      tft.fillScreen(TFT_GREEN);
+      tft.setTextColor(TFT_BLACK);
+      tft.setTextSize(2);
+      tft.setCursor(10, 10);
+      tft.print("You Won!");
+      delay(200);
     }
     message_t message;
     if (getMessageFromQueue(&message))
