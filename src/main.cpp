@@ -18,16 +18,8 @@
 
 TFT_eSPI tft = TFT_eSPI(); // Invoke library, pins defined in User_Setup.h
 
-unsigned long targetTime = 0;
-byte red = 31;
-byte green = 0;
-byte blue = 0;
-byte state = 0;
-unsigned int colour = red << 11;
-
 uint8_t shouldRedrawMap = 0;
 bool formerDisplayMenu = false;
-
 
 // Check if Bluetooth Serial is properly supported
 #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
@@ -72,7 +64,6 @@ Minesweeper game;
 
 #define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
-
 
 //--------------------------------------------START OF MESSAGE QUEUE CODE--------------------------------------------
 
@@ -121,8 +112,6 @@ bool getMessageFromQueue(message_t *message)
 }
 
 //--------------------------------------------END OF MESSAGE QUEUE CODE--------------------------------------------
-
-
 
 //--------------------------------------------START OF BLUETOOTH CONNECTION CODE--------------------------------------------
 
@@ -241,7 +230,7 @@ class MyCallbacks : public BLECharacteristicCallbacks
                     param->write.bda[2], param->write.bda[3],
                     param->write.bda[4], param->write.bda[5]);
       // Send back the received value
-        // Add to message queue
+      // Add to message queue
       if (!addMessageToQueue(param->write.handle, (uint8_t *)value.c_str(), value.length()))
       {
         Serial.println("Message queue is full, dropping message");
@@ -254,7 +243,6 @@ class MyCallbacks : public BLECharacteristicCallbacks
 };
 
 //--------------------------------------------END OF BLUETOOTH CONNECTION CODE--------------------------------------------
-
 
 //---------------------------------------------START OF ISRs CODE--------------------------------------------
 
@@ -271,22 +259,20 @@ void IRAM_ATTR buttonISR_GPIO2()
   mark_as_bomb = true;
 }
 
-bool displayMenu = true; 
+bool displayMenu = true;
 
 // Handke Menu: Start game and pause on GPIO13
-void IRAM_ATTR buttonISR_GPIO13() {
+void IRAM_ATTR buttonISR_GPIO13()
+{
   displayMenu = !displayMenu; // Toggle menu display
-
 }
 
-
 int32_t lastButtonPress = 0;
-
 
 // https://circuitdigest.com/microcontroller-projects/esp32-timers-and-timer-interrupts
 // Setup one second timer
 hw_timer_t *my_timer = NULL;
-uint32_t timerCounter = 0;
+uint32_t timerCounter = 0; // this increments every 1/32nd of a second
 void IRAM_ATTR timerISR()
 {
   timerCounter++;
@@ -299,6 +285,16 @@ void IRAM_ATTR timerISR()
 void draw_map()
 {
   game.draw_map(tft);
+  tft.setTextColor(TFT_BLACK);
+  tft.setTextSize(1);
+  
+  for (int i = 0; i < devices_size; i++)
+  {
+    tft.setCursor(2, 13 * 16 + i * 16);
+    tft.printf("%s",devices[i].name);
+  }
+  // tft.setCursor(10, 13 * 16);
+
 }
 
 void draw_menu()
@@ -312,18 +308,18 @@ void draw_menu()
   tft.setCursor(3, 50);
   tft.print("Press again to resume");
 
-  tft.setCursor(3, 70);
+  tft.setTextSize(1);
+  tft.setCursor(2, 90);
   tft.print("Connected devices:");
   for (int i = 0; i < devices_size; i++)
   {
-    tft.setCursor(8, 90 + i * 20);
+    tft.setCursor(8, 110 + i * 20);
     tft.printf("%s (%02X:%02X:%02X:%02X:%02X:%02X)",
                devices[i].name,
                devices[i].remote_bda[0], devices[i].remote_bda[1],
                devices[i].remote_bda[2], devices[i].remote_bda[3],
                devices[i].remote_bda[4], devices[i].remote_bda[5]);
   }
-  
 }
 
 // ---------------------------------------------END OF TFT DRAWING CODE--------------------------------------------
@@ -403,12 +399,11 @@ void setup()
   tft.init();
   tft.setRotation(0);
   tft.fillScreen(TFT_CYAN);
-  tft.drawString("Bluetooth Relay", 30, 30, 1);
+  tft.drawString(" Horia BlueBomb ", 18, 30, 2);
   Serial.println("TFT initialized with red background");
   Serial.printf("TFT width: %d, height: %d\n", tft.width(), tft.height());
-  targetTime = millis() + 1000;
 
-  draw_map();
+  // draw_map();
 
   // Initialize button GPIO0
   pinMode(GPIO_NUM_0, INPUT_PULLUP);
@@ -419,7 +414,6 @@ void setup()
 
   pinMode(GPIO_NUM_32, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(GPIO_NUM_32), buttonISR_GPIO13, FALLING);
-
 
   // Initialize timer for one second
   my_timer = timerBegin(0, 80, true);              // Timer 0, prescaler 80 (1 tick = 1 us)
@@ -508,17 +502,18 @@ void loop()
     formerDisplayMenu = true; // Set the flag to indicate menu is displayed
     Serial.println("Menu button pressed, toggling displayMenu state");
     Serial.printf("displayMenu: %d\n\n", displayMenu);
-    
   }
-  else if (displayMenu) {
-    
+  else if (displayMenu)
+  {
+
     getMessageFromQueue(&message); // Loop over received messages while displaying the menu
   }
   else if (!displayMenu)
   {
-    if (formerDisplayMenu) {
+    if (formerDisplayMenu)
+    {
       tft.fillScreen(TFT_CYAN);
-      draw_map(); // Redraw the game map when exiting the menu
+      draw_map();                // Redraw the game map when exiting the menu
       formerDisplayMenu = false; // Reset the flag when exiting the menu
     }
     if (shouldRedrawMap)

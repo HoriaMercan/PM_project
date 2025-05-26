@@ -16,10 +16,11 @@ class Minesweeper
 {
 public:
     uint8_t bombs[NUM_BOMBS];
-    uint8_t flag_is_revealed[(WIDTH * HEIGHT + 7) / 8];
-    uint8_t player_position;
-    uint8_t marked_as_bomb[(WIDTH * HEIGHT + 7) / 8]; // For marking positions as bombs
+    uint8_t flag_is_revealed[(WIDTH * HEIGHT + 7) / 8]; // common for both players
+    uint8_t player_position[2];
+    uint8_t marked_as_bomb[2][(WIDTH * HEIGHT + 7) / 8]; // For marking positions as bombs
 
+    int player_turn; // 0 or 1, which player is currently playing
     bool is_lost;
     void _reveal_until_neighbouring_bomb(uint8_t position);
 
@@ -43,7 +44,7 @@ public:
     void move_player(command_t command);
     uint8_t get_player_position()
     {
-        return player_position;
+        return player_position[player_turn];
     }
     bool is_revealed(uint8_t position);
     void set_revealed(uint8_t position);

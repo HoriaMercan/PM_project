@@ -2,14 +2,15 @@
 
 Minesweeper::Minesweeper()
 {
+    player_turn = 0; // Start with player 0
     for (int i = 0; i < (WIDTH * HEIGHT + 7) / 8; i++)
     {
         flag_is_revealed[i] = 0;
-        marked_as_bomb[i] = 0; // Initialize marked positions as not bombs
+        marked_as_bomb[0][i] = marked_as_bomb[1][i] = 0; // Initialize marked positions as not bombs
     }
 
     is_lost = false;
-    player_position = 0; // Start at the top-left corner
+    player_position[0] = player_position[1] = 0; // Start at the top-left corner
     esp_fill_random(bombs, NUM_BOMBS);
     for (int i = 0; i < NUM_BOMBS; i++)
     {
@@ -29,8 +30,8 @@ inline uint8_t Minesweeper::get_y_pos(uint8_t position)
 
 void Minesweeper::move_player(command_t command)
 {
-    uint8_t x = get_x_pos(player_position);
-    uint8_t y = get_y_pos(player_position);
+    uint8_t x = get_x_pos(player_position[player_turn]);
+    uint8_t y = get_y_pos(player_position[player_turn]);
 
     switch (command)
     {
@@ -59,7 +60,7 @@ void Minesweeper::move_player(command_t command)
         break;
     }
 
-    player_position = 8 * x + y;
+    player_position[player_turn] = 8 * x + y;
 }
 
 bool Minesweeper::is_revealed(uint8_t position)
@@ -74,14 +75,14 @@ void Minesweeper::set_revealed(uint8_t position)
     int32_t x = get_x_pos(position);
     int32_t y = get_y_pos(position);
     flag_is_revealed[x] |= (1 << y);
-    marked_as_bomb[x] &= ~(1 << y); // Unmark as bomb when revealed
+    marked_as_bomb[player_turn][x] &= ~(1 << y); // Unmark as bomb when revealed
 }
 
 bool Minesweeper::is_marked_as_bomb(uint8_t position)
 {
     int32_t x = get_x_pos(position);
     int32_t y = get_y_pos(position);
-    return (marked_as_bomb[x] & (1 << y)) != 0;
+    return (marked_as_bomb[player_turn][x] & (1 << y)) != 0;
 }
 void Minesweeper::set_marked_as_bomb(uint8_t position)
 {
@@ -91,21 +92,21 @@ void Minesweeper::set_marked_as_bomb(uint8_t position)
     }
     int32_t x = get_x_pos(position);
     int32_t y = get_y_pos(position);
-    marked_as_bomb[x] ^= (1 << y); // change state
+    marked_as_bomb[player_turn][x] ^= (1 << y); // change state
 }
 
 bool Minesweeper::shoot()
 {
-    if (is_bomb(player_position))
+    if (is_bomb(player_position[player_turn]))
     {
-        set_revealed(player_position);
+        set_revealed(player_position[player_turn]);
         is_lost = true;
         return true; // Game over
     }
     else
     {
-        set_revealed(player_position);
-        _reveal_until_neighbouring_bomb(player_position);
+        set_revealed(player_position[player_turn]);
+        _reveal_until_neighbouring_bomb(player_position[player_turn]);
         return false; // Continue playing
     }
 }
@@ -178,6 +179,7 @@ void Minesweeper::_reveal_until_neighbouring_bomb(uint8_t position)
 void Minesweeper::draw_map(TFT_eSPI &tft)
 {
     const int pixel_size = 13;
+    tft.setTextSize(1);
     for (int i = 0; i < WIDTH; i++)
     {
         for (int j = 0; j < HEIGHT; j++)
@@ -246,7 +248,7 @@ void Minesweeper::draw_map(TFT_eSPI &tft)
 
 void Minesweeper::builtin_button_pressed()
 {
-    set_marked_as_bomb(player_position);
+    set_marked_as_bomb(player_position[player_turn]);
 }
 
 bool Minesweeper::won()
