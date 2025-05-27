@@ -64,7 +64,6 @@ int playerTurn = 0;
 bool gameStarted = false;
 bool displayMenu = true;
 
-
 #define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 
@@ -260,11 +259,12 @@ void IRAM_ATTR buttonISR_GPIO0()
   shouldRedrawMap = 1; // total reset the game
   displayMenu = true;
   formerDisplayMenu = false; // Reset display menu flag
-  playerTurn = 0; // Reset player turn
+  playerTurn = 0;            // Reset player turn
 }
 
 // Marjk as bomb button on GPIO2
 bool mark_as_bomb = false;
+
 void IRAM_ATTR buttonISR_GPIO2()
 {
   mark_as_bomb = true;
@@ -295,7 +295,7 @@ void draw_map(bool update_players_order = false)
 {
   // Clear the buttom of the screen for displaying player turn properly
   if (update_players_order)
-    tft.fillRect(0, 13*16, tft.width(), tft.height() - 13 * 16, TFT_CYAN);
+    tft.fillRect(0, 13 * 16, tft.width(), tft.height() - 13 * 16, TFT_CYAN);
 
   game.draw_map(tft);
   tft.setTextSize(1);
@@ -375,6 +375,15 @@ int noteDurations[] = {
     8, 8, 8, 8,
     4, 4};
 
+int gameOverMelody[] = {
+    NOTE_C5, NOTE_B4, NOTE_AS4, NOTE_A4,
+    NOTE_GS4, NOTE_G4, NOTE_FS4, NOTE_F4};
+
+int gameOverDurations[] = {
+    8, 8, 8, 8,
+    8, 8, 8, 4};
+
+
 void init_bt()
 {
   // Create the BLE Device
@@ -447,6 +456,7 @@ void setup()
   timerAlarmWrite(my_timer, 1000000 / 1000, true); // Set alarm for 1/1000 second
   timerAlarmEnable(my_timer);                      // Enable the alarm
 
+  // Sing when the device starts
   int size = sizeof(noteDurations) / sizeof(int);
   pinMode(BUZZZER_PIN, OUTPUT); // Set the buzzer pin as output
 
