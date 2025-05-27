@@ -14,7 +14,7 @@
 
 class Minesweeper
 {
-public:
+private:
     uint8_t bombs[NUM_BOMBS];
     uint8_t flag_is_revealed[(WIDTH * HEIGHT + 7) / 8]; // common for both players
     uint8_t player_position[2];
@@ -24,7 +24,7 @@ public:
     bool is_lost;
     void _reveal_until_neighbouring_bomb(uint8_t position);
 
-// public:
+public:
     Minesweeper();
     static inline uint8_t get_x_pos(uint8_t position);
     static inline uint8_t get_y_pos(uint8_t position);
@@ -65,6 +65,11 @@ public:
     void draw_map(TFT_eSPI &tft);
 
     bool won();
+
+    void set_player_turn(int turn)
+    {
+        player_turn = turn;
+    }
 
 };
 

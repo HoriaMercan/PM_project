@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <map>
 
 #include <BLEDevice.h>
 #include <BLEServer.h>
@@ -8,7 +7,7 @@
 
 #include <BLE2902.h>
 
-#include <TFT_eSPI.h> // Include the graphics library (this includes the sprite functions)
+#include <TFT_eSPI.h>
 #include <SPI.h>
 
 // #define TFT_WIDTH 128
@@ -16,7 +15,7 @@
 #include "minesweeper.h"
 #include "bt_commands.h"
 
-TFT_eSPI tft = TFT_eSPI(); // Invoke library, pins defined in User_Setup.h
+TFT_eSPI tft = TFT_eSPI();
 
 uint8_t shouldRedrawMap = 0;
 bool formerDisplayMenu = false;
@@ -47,10 +46,10 @@ bool hasConnectedClient = false;
 
 // Queue for handling messages
 #define MAX_MESSAGES 10
-#define MAX_MESSAGE_LENGTH 100
+#define MAX_MESSAGE_LENGTH 20
 typedef struct
 {
-  uint32_t handle; // Handle of the characteristic
+  uint8_t handle[6]; // Mac address of the device who sent the msg
   uint16_t length;
   uint8_t data[MAX_MESSAGE_LENGTH];
 } message_t;
@@ -61,6 +60,10 @@ int messageQueueTail = 0;
 portMUX_TYPE messageQueueMux = portMUX_INITIALIZER_UNLOCKED;
 
 Minesweeper game;
+int playerTurn = 0;
+bool gameStarted = false;
+bool displayMenu = true;
+
 
 #define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
@@ -68,7 +71,7 @@ Minesweeper game;
 //--------------------------------------------START OF MESSAGE QUEUE CODE--------------------------------------------
 
 // Function to add message to queue to be handled fby main loop
-bool addMessageToQueue(uint32_t handle, uint8_t *data, size_t length)
+bool addMessageToQueue(uint8_t mac_addr[6], uint8_t *data, size_t length)
 {
   if (length > MAX_MESSAGE_LENGTH)
   {
@@ -85,7 +88,8 @@ bool addMessageToQueue(uint32_t handle, uint8_t *data, size_t length)
     return false;
   }
 
-  messageQueue[messageQueueHead].handle = handle;
+  // messageQueue[messageQueueHead].handle = handle;
+  memcpy(messageQueue[messageQueueHead].handle, mac_addr, sizeof(messageQueue[messageQueueHead].handle));
   messageQueue[messageQueueHead].length = length;
   memcpy(messageQueue[messageQueueHead].data, data, length);
 
@@ -179,7 +183,11 @@ class MyServerCallbacks : public BLEServerCallbacks
           memcpy(&devices[j], &devices[j + 1], sizeof(device_connected_t));
         }
         devices_size--;
+        // display the menu when someone disconnects
+        displayMenu = true;
         formerDisplayMenu = false; // Reset display menu flag
+
+        playerTurn = 0; // Reset player turn
 
         break;
       }
@@ -202,7 +210,7 @@ class MyServerCallbacks : public BLEServerCallbacks
       pCharacteristic->notify();
       Serial.println();
       // Add to message queue
-      if (!addMessageToQueue(param->write.handle, (uint8_t *)value.c_str(), value.length()))
+      if (!addMessageToQueue(param->write.bda, (uint8_t *)value.c_str(), value.length()))
       {
         Serial.println("Message queue is full, dropping message");
       }
@@ -231,7 +239,7 @@ class MyCallbacks : public BLECharacteristicCallbacks
                     param->write.bda[4], param->write.bda[5]);
       // Send back the received value
       // Add to message queue
-      if (!addMessageToQueue(param->write.handle, (uint8_t *)value.c_str(), value.length()))
+      if (!addMessageToQueue(param->write.bda, (uint8_t *)value.c_str(), value.length()))
       {
         Serial.println("Message queue is full, dropping message");
       }
@@ -250,6 +258,9 @@ class MyCallbacks : public BLECharacteristicCallbacks
 void IRAM_ATTR buttonISR_GPIO0()
 {
   shouldRedrawMap = 1; // total reset the game
+  displayMenu = true;
+  formerDisplayMenu = false; // Reset display menu flag
+  playerTurn = 0; // Reset player turn
 }
 
 // Marjk as bomb button on GPIO2
@@ -258,8 +269,6 @@ void IRAM_ATTR buttonISR_GPIO2()
 {
   mark_as_bomb = true;
 }
-
-bool displayMenu = true;
 
 // Handke Menu: Start game and pause on GPIO13
 void IRAM_ATTR buttonISR_GPIO13()
@@ -282,19 +291,36 @@ void IRAM_ATTR timerISR()
 
 //---------------------------------------------START OF TFT DRAWING CODE--------------------------------------------
 
-void draw_map()
+void draw_map(bool update_players_order = false)
 {
-  game.draw_map(tft);
-  tft.setTextColor(TFT_BLACK);
-  tft.setTextSize(1);
-  
-  for (int i = 0; i < devices_size; i++)
-  {
-    tft.setCursor(2, 13 * 16 + i * 16);
-    tft.printf("%s",devices[i].name);
-  }
-  // tft.setCursor(10, 13 * 16);
+  // Clear the buttom of the screen for displaying player turn properly
+  if (update_players_order)
+    tft.fillRect(0, 13*16, tft.width(), tft.height() - 13 * 16, TFT_CYAN);
 
+  game.draw_map(tft);
+  tft.setTextSize(1);
+
+  tft.setCursor(2, 13 * 16);
+
+  if (devices_size == 0)
+  {
+    tft.setTextColor(TFT_RED);
+    tft.printf("No devices connected");
+    tft.setTextColor(TFT_BLACK);
+    return;
+  }
+
+  tft.setTextColor(TFT_RED);
+  tft.printf("%s *", devices[playerTurn].name);
+  tft.setTextColor(TFT_BLACK);
+  if (devices_size == 1)
+  {
+    return;
+  }
+
+  tft.setCursor(2, 14 * 16);
+  tft.printf("%s", devices[1 - playerTurn].name);
+  // tft.setCursor(10, 13 * 16);
 }
 
 void draw_menu()
@@ -544,41 +570,45 @@ void loop()
       tft.print("You Won!");
       delay(200);
     }
-    if (getMessageFromQueue(&message))
+    if (getMessageFromQueue(&message)) // Going through the message queue
     {
-      Serial.printf("Processing message (%d bytes)\n", message.length);
+      Serial.printf("Processing message (%d bytes) from %02X:%02X:%02X:%02X:%02X:%02X\n", message.length,
+                    message.handle[0], message.handle[1],
+                    message.handle[2], message.handle[3],
+                    message.handle[4], message.handle[5]);
+      if (memcmp(message.handle, devices[playerTurn].remote_bda, sizeof(esp_bd_addr_t)) != 0)
+      {
+        // If the message is not from the current player, ignore it
+        Serial.println("Message not from current player, ignoring");
+      }
+      else
+      {
+        // If you want to echo back to the same device:
+        if (message.data[0] == 'L')
+        {
+          game.move_player(CMD_LEFT);
+        }
+        else if (message.data[0] == 'R')
+        {
+          game.move_player(CMD_RIGHT);
+        }
+        else if (message.data[0] == 'U')
+        {
+          game.move_player(CMD_UP);
+        }
+        else if (message.data[0] == 'D')
+        {
+          game.move_player(CMD_DOWN);
+        }
+        else if (message.data[0] == 'S')
+        {
+          game.move_player(CMD_SHOOT);
+          playerTurn = (playerTurn + 1) % devices_size; // Switch to the next player
+          game.set_player_turn(playerTurn);
+        }
 
-      // In standard Bluetooth we typically have point-to-point connections
-      // You can implement multi-device relaying by storing messages
-      // and forwarding when other devices connect
-
-      // If you want to echo back to the same device:
-      if (deviceConnected)
-      {
-        // SerialBT.write(message.data, message.length);
+        draw_map(message.data[0] == 'S');
       }
-      if (message.data[0] == 'L')
-      {
-        game.move_player(CMD_LEFT);
-      }
-      else if (message.data[0] == 'R')
-      {
-        game.move_player(CMD_RIGHT);
-      }
-      else if (message.data[0] == 'U')
-      {
-        game.move_player(CMD_UP);
-      }
-      else if (message.data[0] == 'D')
-      {
-        game.move_player(CMD_DOWN);
-      }
-      else if (message.data[0] == 'S')
-      {
-        game.move_player(CMD_SHOOT);
-      }
-
-      draw_map();
 
       // For debugging, print message content to Serial
       Serial.print("Message content: ");
