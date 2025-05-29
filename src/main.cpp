@@ -2,9 +2,6 @@
 
 #include <BLEDevice.h>
 #include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLEClient.h>
-
 #include <BLE2902.h>
 
 #include <TFT_eSPI.h>
@@ -270,8 +267,8 @@ void IRAM_ATTR buttonISR_GPIO2()
   mark_as_bomb = true;
 }
 
-// Handke Menu: Start game and pause on GPIO13
-void IRAM_ATTR buttonISR_GPIO13()
+// Handke Menu: Start game and pause on GPIO32
+void IRAM_ATTR buttonISR_GPIO32()
 {
   displayMenu = !displayMenu; // Toggle menu display
 }
@@ -281,7 +278,7 @@ int32_t lastButtonPress = 0;
 // https://circuitdigest.com/microcontroller-projects/esp32-timers-and-timer-interrupts
 // Setup one second timer
 hw_timer_t *my_timer = NULL;
-uint32_t timerCounter = 0; // this increments every 1/32nd of a second
+uint32_t timerCounter = 0; // this increments every milisecond
 void IRAM_ATTR timerISR()
 {
   timerCounter++;
@@ -355,7 +352,7 @@ void draw_menu()
 const int BUZZZER_PIN = GPIO_NUM_25;
 
 // notes in the melody:
-int melody[] = {
+int melodyWin[] = {
     NOTE_E5, NOTE_E5, NOTE_E5,
     NOTE_E5, NOTE_E5, NOTE_E5,
     NOTE_E5, NOTE_G5, NOTE_C5, NOTE_D5,
@@ -365,7 +362,7 @@ int melody[] = {
     NOTE_E5, NOTE_D5, NOTE_D5, NOTE_E5,
     NOTE_D5, NOTE_G5};
 
-int noteDurations[] = {
+int noteDurationsWin[] = {
     8, 8, 4,
     8, 8, 4,
     8, 8, 8, 8,
@@ -383,6 +380,16 @@ int gameOverDurations[] = {
     8, 8, 8, 8,
     8, 8, 8, 4};
 
+int simpleMoveMelody[] = {
+    NOTE_C6};
+int simpleMoveDurations[] = {
+    16};
+
+int placeBombMelody[] = {
+    NOTE_C4};
+
+int placeBombDurations[] = {
+  16};
 
 void init_bt()
 {
@@ -448,7 +455,7 @@ void setup()
   attachInterrupt(digitalPinToInterrupt(GPIO_NUM_2), buttonISR_GPIO2, FALLING);
 
   pinMode(GPIO_NUM_32, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(GPIO_NUM_32), buttonISR_GPIO13, FALLING);
+  attachInterrupt(digitalPinToInterrupt(GPIO_NUM_32), buttonISR_GPIO32, FALLING);
 
   // Initialize timer for one second
   my_timer = timerBegin(0, 80, true);              // Timer 0, prescaler 80 (1 tick = 1 us)
@@ -457,7 +464,7 @@ void setup()
   timerAlarmEnable(my_timer);                      // Enable the alarm
 
   // Sing when the device starts
-  int size = sizeof(noteDurations) / sizeof(int);
+  int size = sizeof(noteDurationsWin) / sizeof(int);
   pinMode(BUZZZER_PIN, OUTPUT); // Set the buzzer pin as output
 
   for (int thisNote = 0; thisNote < size; thisNote++)
@@ -465,8 +472,8 @@ void setup()
 
     // to calculate the note duration, take one second divided by the note type.
     // e.g. quarter note = 1000 / 4, eighth note = 1000/8, etc.
-    int noteDuration = 1000 / noteDurations[thisNote];
-    tone(BUZZZER_PIN, melody[thisNote], noteDuration);
+    int noteDuration = 1000 / noteDurationsWin[thisNote];
+    tone(BUZZZER_PIN, melodyWin[thisNote], noteDuration);
 
     // to distinguish the notes, set a minimum time between them.
     // the note's duration + 30% seems to work well:
@@ -478,10 +485,91 @@ void setup()
 }
 
 bool play_song = false;
-const int noteDuration_size = sizeof(noteDurations) / sizeof(int);
+
+const int noteWinDuration_size = sizeof(noteDurationsWin) / sizeof(int);
+const int noteGameOverDuration_size = sizeof(gameOverDurations) / sizeof(int);
+
 int currentNote = 0; // Track the current note being played
 uint32_t lastTimerCheck = 0;
 bool action_playing;
+
+const int displayFinalScreenTime = 2000; // 2 seconds in timer ticks (1000 ticks per second)
+int startTimeDisplayFinalScreen = 0;     // Start time for displaying final screen
+bool displayFinalScreen = false;         // Flag to indicate if final screen should be displayed
+
+int note_size;
+int *curr_notes;
+int *curr_durations;
+
+enum MusicType
+{
+  MUSIC_WIN,
+  MUSIC_GAME_OVER,
+  MUSIC_SIMPLE_MOVE,
+  MUSIC_PLACE_BOMB
+};
+
+void startMusic(MusicType type)
+{
+  if (type == MUSIC_WIN)
+  {
+    curr_notes = melodyWin;
+    curr_durations = noteDurationsWin;
+    note_size = noteWinDuration_size;
+  }
+  else if (type == MUSIC_GAME_OVER)
+  {
+    curr_notes = gameOverMelody;
+    curr_durations = gameOverDurations;
+    note_size = noteGameOverDuration_size;
+  }
+  else if (type == MUSIC_SIMPLE_MOVE)
+  {
+    curr_notes = simpleMoveMelody;
+    curr_durations = simpleMoveDurations;
+    note_size = sizeof(simpleMoveDurations) / sizeof(int);
+  }
+  else if (type == MUSIC_PLACE_BOMB)
+  {
+    curr_notes = placeBombMelody;
+    curr_durations = placeBombDurations;
+    note_size = sizeof(placeBombDurations) / sizeof(int);
+  }
+  currentNote = 0;        // Reset the current note
+  play_song = true;       // Set the flag to start playing music
+  action_playing = false; // Reset action playing state
+
+  // DDRAM(BUZZZER_PIN, OUTPUT); // Set the buzzer pin as output
+}
+
+void change_player_name(message_t &message)
+{
+  char new_name[10];
+  size_t name_length = message.length - 1; // Exclude the command character
+  if (name_length > 9)
+  {
+    name_length = 9; // Limit to 9 characters
+  }
+  memcpy(new_name, &message.data[1], name_length);
+  new_name[name_length] = '\0'; // Null-terminate the string
+
+  for (int i = 0; i < devices_size; i++)
+  {
+    Serial.printf("Checking device %d with MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                  i,
+                  devices[i].remote_bda[0], devices[i].remote_bda[1],
+                  devices[i].remote_bda[2], devices[i].remote_bda[3],
+                  devices[i].remote_bda[4], devices[i].remote_bda[5]);
+    if (memcmp(devices[i].remote_bda, message.handle, sizeof(esp_bd_addr_t)) == 0)
+    {
+      // Found the device, update its name
+      strncpy(devices[i].name, new_name, sizeof(devices[i].name) - 1);
+      devices[i].name[sizeof(devices[i].name) - 1] = '\0'; // Ensure null termination
+      Serial.printf("Updated device name to: %s\n", devices[i].name);
+      break;
+    }
+  }
+}
 
 void loop()
 {
@@ -497,20 +585,21 @@ void loop()
     Serial.printf("flag value %d\n",
                   game.is_marked_as_bomb(game.get_player_position()));
 
-    play_song = true; // Play song when marking a bomb
+    // play_song = true; // Play song when marking a bomb
     lastTimerCheck = timerCounter;
     action_playing = false;
+    startMusic(MUSIC_PLACE_BOMB); // Start playing the place bomb melody
   }
 
   if (play_song)
   {
-    if (currentNote < noteDuration_size)
+    if (currentNote < note_size)
     {
-      int noteDuration = 1000 / noteDurations[currentNote];
+      int noteDuration = 1000 / curr_durations[currentNote];
       if (!action_playing)
       {
         action_playing = true; // Set the action as playing
-        tone(BUZZZER_PIN, melody[currentNote], noteDuration);
+        tone(BUZZZER_PIN, curr_notes[currentNote], noteDuration);
       }
       if (timerCounter - lastTimerCheck >= noteDuration + noteDuration / 4) // Check if enough time has passed
       {
@@ -542,7 +631,19 @@ void loop()
   else if (displayMenu)
   {
 
-    getMessageFromQueue(&message); // Loop over received messages while displaying the menu
+    if (getMessageFromQueue(&message))
+    { // Loop over received messages while displaying the menu
+      // Don't process commands, only change the name:
+      if (message.length > 0 && message.data[0] == 'N')
+      {
+        Serial.printf("Changing name for device with MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+                      message.handle[0], message.handle[1],
+                      message.handle[2], message.handle[3],
+                      message.handle[4], message.handle[5]);
+        change_player_name(message);
+        formerDisplayMenu = false; // Reset the flag to redraw the menu
+      }
+    }
   }
   else if (!displayMenu)
   {
@@ -562,23 +663,78 @@ void loop()
     }
     else if (game.is_game_over())
     {
-      tft.fillScreen(TFT_RED);
-      tft.setTextColor(TFT_WHITE);
-      tft.setTextSize(2);
-      tft.setCursor(10, 10);
-      tft.print("Game Over");
-      delay(200);
+      if (!displayFinalScreen && !game.displayed_final)
+      {
+
+        detachInterrupt(digitalPinToInterrupt(GPIO_NUM_0));  // Disable button interrupt
+        detachInterrupt(digitalPinToInterrupt(GPIO_NUM_2));  // Disable bomb marking button interrupt
+        detachInterrupt(digitalPinToInterrupt(GPIO_NUM_32)); // Disable menu button interrupt
+
+        displayFinalScreen = true; // Set the flag to indicate final scr
+        tft.fillScreen(TFT_RED);
+        tft.setTextColor(TFT_WHITE);
+        tft.setTextSize(2);
+        tft.setCursor(10, 10);
+        tft.print("Game Over");
+
+        tft.setCursor(10, 50);
+        tft.printf("Lose: %s\n", devices[playerTurn].name);
+        game.displayed_final = true;                // Set the flag to indicate final screen has been displayed
+        startTimeDisplayFinalScreen = timerCounter; // Start the timer for displaying final screen
+
+        startMusic(MUSIC_GAME_OVER); // Start playing the game over melody
+      }
+      if (displayFinalScreen && timerCounter - startTimeDisplayFinalScreen >= displayFinalScreenTime)
+      {
+        // If the final screen has been displayed for enough time, reset the game
+        displayFinalScreen = false; // Reset the flag
+
+        tft.setCursor(10, 90);
+        tft.setTextSize(1);
+        tft.print("You can exit the page now");
+
+        attachInterrupt(digitalPinToInterrupt(GPIO_NUM_0), buttonISR_GPIO0, FALLING);   // Re-enable button interrupt
+        attachInterrupt(digitalPinToInterrupt(GPIO_NUM_2), buttonISR_GPIO2, FALLING);   // Re-enable bomb marking button interrupt
+        attachInterrupt(digitalPinToInterrupt(GPIO_NUM_32), buttonISR_GPIO32, FALLING); // Re-enable menu button interrupt
+      }
+
       // game = Minesweeper();
       // shouldRedrawMap = 1;
     }
     else if (game.won())
     {
-      tft.fillScreen(TFT_GREEN);
-      tft.setTextColor(TFT_BLACK);
-      tft.setTextSize(2);
-      tft.setCursor(10, 10);
-      tft.print("You Won!");
-      delay(200);
+      if (!displayFinalScreen && !game.displayed_final)
+      {
+
+        detachInterrupt(digitalPinToInterrupt(GPIO_NUM_0));  // Disable button interrupt
+        detachInterrupt(digitalPinToInterrupt(GPIO_NUM_2));  // Disable bomb marking button interrupt
+        detachInterrupt(digitalPinToInterrupt(GPIO_NUM_32)); // Disable menu button interrupt
+
+        displayFinalScreen = true; // Set the flag to indicate final screen should be displayed
+        tft.fillScreen(TFT_GREEN);
+        tft.setTextColor(TFT_BLACK);
+        tft.setTextSize(2);
+        tft.setCursor(10, 10);
+        tft.print("You Won!");
+        tft.setCursor(10, 50);
+        tft.printf("Congrats %s\n", devices[playerTurn].name);
+        game.displayed_final = true;                // Set the flag to indicate final screen has been displayed
+        startTimeDisplayFinalScreen = timerCounter; // Start the timer for displaying final screen
+        startMusic(MUSIC_WIN);                      // Start playing the win melody
+      }
+      if (displayFinalScreen && timerCounter - startTimeDisplayFinalScreen >= displayFinalScreenTime)
+      {
+        // If the final screen has been displayed for enough time, reset the game
+        displayFinalScreen = false; // Reset the flag
+
+        tft.setCursor(10, 90);
+        tft.setTextSize(1);
+        tft.print("You can exit the page now");
+
+        attachInterrupt(digitalPinToInterrupt(GPIO_NUM_0), buttonISR_GPIO0, FALLING);   // Re-enable button interrupt
+        attachInterrupt(digitalPinToInterrupt(GPIO_NUM_2), buttonISR_GPIO2, FALLING);   // Re-enable bomb marking button interrupt
+        attachInterrupt(digitalPinToInterrupt(GPIO_NUM_32), buttonISR_GPIO32, FALLING); // Re-enable menu button interrupt
+      }
     }
     if (getMessageFromQueue(&message)) // Going through the message queue
     {
@@ -597,24 +753,32 @@ void loop()
         if (message.data[0] == 'L')
         {
           game.move_player(CMD_LEFT);
+          startMusic(MUSIC_SIMPLE_MOVE); // Play simple move melody
         }
         else if (message.data[0] == 'R')
         {
           game.move_player(CMD_RIGHT);
+          startMusic(MUSIC_SIMPLE_MOVE); // Play simple move melody
         }
         else if (message.data[0] == 'U')
         {
           game.move_player(CMD_UP);
+          startMusic(MUSIC_SIMPLE_MOVE); // Play simple move melody
         }
         else if (message.data[0] == 'D')
         {
           game.move_player(CMD_DOWN);
+          startMusic(MUSIC_SIMPLE_MOVE); // Play simple move melody
         }
         else if (message.data[0] == 'S')
         {
           game.move_player(CMD_SHOOT);
           playerTurn = (playerTurn + 1) % devices_size; // Switch to the next player
           game.set_player_turn(playerTurn);
+        }
+        else if (message.data[0] == 'N')
+        { // Change name for MAC address
+          change_player_name(message);
         }
 
         draw_map(message.data[0] == 'S');

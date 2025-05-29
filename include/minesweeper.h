@@ -10,7 +10,7 @@
 #define WIDTH 8
 #define HEIGHT 16
 
-#define NUM_BOMBS (WIDTH * HEIGHT / 8)
+#define NUM_BOMBS (WIDTH * HEIGHT / 10)
 
 class Minesweeper
 {
@@ -46,8 +46,8 @@ public:
     {
         return player_position[player_turn];
     }
-    bool is_revealed(uint8_t position);
-    void set_revealed(uint8_t position);
+    inline bool is_revealed(uint8_t position);
+    inline void set_revealed(uint8_t position);
 
     bool is_marked_as_bomb(uint8_t position);
     void set_marked_as_bomb(uint8_t position);
@@ -57,7 +57,7 @@ public:
     bool shoot();
     uint8_t how_many_neighbouring_bombs(uint8_t position);
 
-    bool is_game_over()
+    inline bool is_game_over()
     {
         return is_lost;
     }
@@ -66,10 +66,12 @@ public:
 
     bool won();
 
-    void set_player_turn(int turn)
+    inline void set_player_turn(int turn)
     {
         player_turn = turn;
     }
+
+    bool displayed_final = false;
 
 };
 

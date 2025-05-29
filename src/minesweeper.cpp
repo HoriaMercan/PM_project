@@ -197,15 +197,21 @@ void Minesweeper::draw_map(TFT_eSPI &tft)
                         tft.setCursor(i * pixel_size + 2, j * pixel_size + 2);
                         tft.print("L");
                     }
-                    else
+                    else // standard revealed tile
                     {
                         // tft.setTextColor(TFT_BLACK);
                         char text[2];
                         int num_bombs = this->how_many_neighbouring_bombs(j * 8 + i);
                         sprintf(text, "%d", num_bombs);
-                        tft.setCursor   (i * pixel_size + 2, j * pixel_size + 2);
+                        tft.setCursor(i * pixel_size + 2, j * pixel_size + 2);
                         tft.print(text);
                     }
+                }
+                else if (this->is_marked_as_bomb(j * 8 + i))
+                {
+                    tft.setCursor(i * pixel_size + 2, j * pixel_size + 2);
+                    tft.setTextColor(TFT_BLACK);
+                    tft.print("B");
                 }
             }
             else if (!this->is_revealed(j * 8 + i) && !this->is_marked_as_bomb(j * 8 + i))
@@ -256,8 +262,9 @@ bool Minesweeper::won()
     // Check if all non-bomb positions are revealed
     for (int i = 0; i < WIDTH * HEIGHT; i++)
     {
-        if (!is_bomb(i) && !is_revealed(i)) {
-            return false;  // Not all non-bomb positions are revealed
+        if (!is_bomb(i) && !is_revealed(i))
+        {
+            return false; // Not all non-bomb positions are revealed
         }
 
         if (is_bomb(i) && !is_marked_as_bomb(i))
