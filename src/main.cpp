@@ -14,7 +14,7 @@
 
 TFT_eSPI tft = TFT_eSPI();
 
-uint8_t shouldRedrawMap = 0;
+volatile uint8_t shouldRedrawMap = 0;
 bool formerDisplayMenu = false;
 
 // Check if Bluetooth Serial is properly supported
@@ -58,8 +58,8 @@ portMUX_TYPE messageQueueMux = portMUX_INITIALIZER_UNLOCKED;
 
 Minesweeper game;
 int playerTurn = 0;
-bool gameStarted = false;
-bool displayMenu = true;
+volatile bool gameStarted = false;
+volatile bool displayMenu = true;
 
 #define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
@@ -250,9 +250,25 @@ class MyCallbacks : public BLECharacteristicCallbacks
 
 //---------------------------------------------START OF ISRs CODE--------------------------------------------
 
+// https://circuitdigest.com/microcontroller-projects/esp32-timers-and-timer-interrupts
+// Setup one second timer
+hw_timer_t *my_timer = NULL;
+volatile uint32_t timerCounter = 0; // this increments every milisecond
+void IRAM_ATTR timerISR()
+{
+  timerCounter++;
+}
+
+volatile uint32_t lastButtonPressTime = 0; // Last time a button was pressed
+
 // ISR for pressing GPIO0 button
 void IRAM_ATTR buttonISR_GPIO0()
 {
+  if (timerCounter - lastButtonPressTime < 300)
+  {
+    return; // Ignore button presses that are too close together
+  }
+  lastButtonPressTime = timerCounter; // Update last button press time
   shouldRedrawMap = 1; // total reset the game
   displayMenu = true;
   formerDisplayMenu = false; // Reset display menu flag
@@ -260,28 +276,27 @@ void IRAM_ATTR buttonISR_GPIO0()
 }
 
 // Marjk as bomb button on GPIO2
-bool mark_as_bomb = false;
+volatile bool mark_as_bomb = false;
 
 void IRAM_ATTR buttonISR_GPIO2()
 {
+  if (timerCounter - lastButtonPressTime < 300)
+  {
+    return; // Ignore button presses that are too close together
+  }
+  lastButtonPressTime = timerCounter; // Update last button press time
   mark_as_bomb = true;
 }
 
 // Handke Menu: Start game and pause on GPIO32
 void IRAM_ATTR buttonISR_GPIO32()
 {
+  if (timerCounter - lastButtonPressTime < 300)
+  {
+    return; // Ignore button presses that are too close together
+  }
+  lastButtonPressTime = timerCounter; // Update last button press time
   displayMenu = !displayMenu; // Toggle menu display
-}
-
-int32_t lastButtonPress = 0;
-
-// https://circuitdigest.com/microcontroller-projects/esp32-timers-and-timer-interrupts
-// Setup one second timer
-hw_timer_t *my_timer = NULL;
-uint32_t timerCounter = 0; // this increments every milisecond
-void IRAM_ATTR timerISR()
-{
-  timerCounter++;
 }
 
 //---------------------------------------------END OF ISRs CODE--------------------------------------------
@@ -808,4 +823,14 @@ void loop()
   }
 
   delay(10); // Small delay for stability
+}
+
+int main()
+{
+  setup();
+  while (true)
+  {
+    loop();
+  }
+  return 0;
 }
